@@ -47,6 +47,7 @@
 #include "state_structs.hpp"            // for ShopRestrictedItem, Illumination
 #include "thread_utils.hpp"             // for OnHeapPointer
 #include "virtual_table.hpp"            // for get_virtual_function_address, VIRT_FUNC
+#include "script/events.hpp"            // for pre_heap_clone_event
 
 uint32_t setflag(uint32_t flags, int bit) // shouldn't we change those to #define ?
 {

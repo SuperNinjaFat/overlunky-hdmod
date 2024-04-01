@@ -14,6 +14,8 @@
 #include "script/lua_backend.hpp" // for LuaBackend, ON, LuaBackend::PreHan...
 #include "settings_api.hpp"       // for restore_original_settings
 #include "state.hpp"              // for StateMemory, State
+#include "hook_handler.hpp"       // for HookHandler
+#include "vtable_hook.hpp"
 
 class JournalPage;
 struct AABB;
@@ -520,6 +522,8 @@ void post_event(ON event)
 
 void pre_copy_state_event(StateMemory* from, StateMemory* to)
 {
+    VDestructorDetour::s_Tasks[to] = VDestructorDetour::s_Tasks[from];
+    HookHandler<Entity, CallbackType::Entity>::copy_vtable_hooks(from, to);
     LuaBackend::for_each_backend(
         [&](LuaBackend::LockedBackend backend)
         {

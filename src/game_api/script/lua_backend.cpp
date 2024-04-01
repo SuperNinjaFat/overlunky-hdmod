@@ -152,8 +152,8 @@ void LuaBackend::clear_all_callbacks()
     }
     hotkey_callbacks.clear();
 
-    HookHandler<Entity, CallbackType::Entity>::clear_all_hooks();
-    HookHandler<RenderInfo, CallbackType::Entity>::clear_all_hooks();
+    locals.entityHookHandler.clear_all_hooks();
+    locals.renderInfoHookHandler.clear_all_hooks();
     HookHandler<ThemeInfo, CallbackType::Theme>::clear_all_hooks();
 
     for (auto& [screen_id, id] : screen_hooks)
@@ -375,8 +375,8 @@ bool LuaBackend::update()
         }
         locals.clear_callbacks.clear();
 
-        HookHandler<Entity, CallbackType::Entity>::clear_pending();
-        HookHandler<RenderInfo, CallbackType::Entity>::clear_pending();
+        locals.entityHookHandler.clear_pending();
+        locals.renderInfoHookHandler.clear_pending();
         HookHandler<ThemeInfo, CallbackType::Theme>::clear_pending();
 
         for (auto& [screen_id, id] : clear_screen_hooks)
@@ -1912,6 +1912,8 @@ void LuaBackend::copy_locals(StateMemory* from, StateMemory* to)
     to_data.save_callbacks = from_data.save_callbacks;
     to_data.clear_callbacks = from_data.clear_callbacks;
     to_data.cbcount = from_data.cbcount;
+    to_data.entityHookHandler = from_data.entityHookHandler;
+    to_data.renderInfoHookHandler = from_data.renderInfoHookHandler;
     sol::object from_user_data = from_data.user_data;
     if (from_user_data != sol::lua_nil)
     {

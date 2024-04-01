@@ -3,6 +3,7 @@
 #include <cstdint>    // for uint32_t
 #include <functional> // function
 #include <vector>     // vector
+#include "state.hpp"
 
 enum class CallbackType
 {
@@ -67,6 +68,13 @@ struct HookHandler
         cleared_hooks.clear();
     }
 
+    static void copy_vtable_hooks(StateMemory* from, StateMemory* to)
+    {
+        if (copy_hooks_impl != nullptr) {
+            copy_hooks_impl(from, to);
+        }
+    }
+
     template <class CallableT>
     static void set_hook_dtor_impl(CallableT&& callable)
     {
@@ -78,6 +86,12 @@ struct HookHandler
     {
         assert(unhook_impl == nullptr);
         unhook_impl = std::forward<CallableT>(callable);
+    }
+    template <class CallableT>
+    static void set_copy_hooks_impl(CallableT&& callable)
+    {
+        assert(copy_hooks_impl == nullptr);
+        copy_hooks_impl = std::forward<CallableT>(callable);
     }
 
   private:
@@ -127,4 +141,5 @@ struct HookHandler
         }
     }
     inline static std::function<void(std::uint32_t, std::uint32_t)> unhook_impl{};
+    inline static std::function<void(StateMemory*, StateMemory*)> copy_hooks_impl{};
 };

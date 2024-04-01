@@ -295,12 +295,12 @@ struct LocalStateData
     UMapEditTracked<int, ScreenCallback> save_callbacks;
     VectorEditTracked<int> clear_callbacks;
     int cbcount = 0;
+    HookHandler<Entity, CallbackType::Entity> entityHookHandler;
+    HookHandler<RenderInfo, CallbackType::Entity> renderInfoHookHandler;
 };
 
 class LuaBackend
-    : public HookHandler<Entity, CallbackType::Entity>,
-      public HookHandler<RenderInfo, CallbackType::Entity>,
-      public HookHandler<ThemeInfo, CallbackType::Theme>
+    : public HookHandler<ThemeInfo, CallbackType::Theme>
 {
   public:
     using ProtectedBackend = GlobalMutexProtectedResource<LuaBackend*, &global_lua_lock>;

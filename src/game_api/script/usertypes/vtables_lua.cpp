@@ -118,6 +118,14 @@ void register_usertypes(sol::state& lua)
             floor_vtable.unhook(ent, callback_id);
             door_vtable.unhook(ent, callback_id);
         });
+    HookHandler<Entity, CallbackType::Entity>::set_copy_hooks_impl(
+        [](StateMemory* from, StateMemory* to)
+        {
+            entity_vtable.copy_hooks(from, to);
+            movable_vtable.copy_hooks(from, to);
+            floor_vtable.copy_hooks(from, to);
+            door_vtable.copy_hooks(from, to);
+        });
 
     HookHandler<RenderInfo, CallbackType::Entity>::set_hook_dtor_impl(
         [](std::uint32_t uid, std::function<void(std::uint32_t)> fun)
@@ -136,6 +144,11 @@ void register_usertypes(sol::state& lua)
         {
             Entity* ent = get_entity_ptr(uid);
             render_info_vtable.unhook(ent->rendering_info, callback_id);
+        });
+    HookHandler<RenderInfo, CallbackType::Entity>::set_copy_hooks_impl(
+        [](StateMemory* from, StateMemory* to)
+        {
+            render_info_vtable.copy_hooks(from, to);
         });
 
     // Add support for hooking entity dtors

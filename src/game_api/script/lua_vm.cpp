@@ -537,7 +537,9 @@ end
                 backend->get_locals().clear_callbacks.push_back(caller.id);
                 break;
             case CallbackType::Entity:
-                backend->HookHandler<Entity, CallbackType::Entity>::clear_hook(caller.id, caller.aux_id);
+                // auto local_state = State::get().ptr();
+                // auto& local = backend->locals[local_state];
+                backend->local_state_datas[State::get().ptr()].entityHookHandler.clear_hook(caller.id, caller.aux_id);
                 break;
             case CallbackType::Screen:
                 backend->clear_screen_hooks.push_back({caller.aux_id, caller.id});
@@ -1510,7 +1512,10 @@ end
     lua["clear_entity_callback"] = [](int uid, CallbackId cb_id)
     {
         auto backend = LuaBackend::get_calling_backend();
-        backend->HookHandler<Entity, CallbackType::Entity>::clear_hook(cb_id, uid);
+        // auto local_state = State::get().ptr();
+        // auto& local = backend->locals[local_state];
+        // local.entityHookHandler.clear_hook(cb_id, uid);
+        backend->local_state_datas[State::get().ptr()].entityHookHandler.clear_hook(cb_id, uid);
     };
     /// Deprecated
     /// Use `entity:set_pre_update_state_machine` instead.
