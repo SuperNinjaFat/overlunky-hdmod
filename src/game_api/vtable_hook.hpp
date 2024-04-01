@@ -8,6 +8,7 @@
 #include <utility>       // for min, max
 #include <vector>        // for vector, _Vector_iterator, allocator, _Vecto...
 
+#include "state.hpp"
 #include "util.hpp" // for function_signature
 
 void* register_hook_function(void*** vtable, size_t index, void* hook_function);
@@ -21,19 +22,29 @@ struct VDestructorDetour
 
     static void detour(void* self, bool destroy)
     {
-        if (s_Tasks.contains(self))
+    // inline static std::unordered_map<void*, std::vector<DtorTaskT>> s_Tasks{};
+        // std::unordered_map<void*, std::vector<DtorTaskT>> tasks;
+        // try
+        // {
+        //     tasks = s_Tasks.at(State::get().ptr());
+        // } catch (std::out_of_range e)
+        // {
+        //     return;
+        // }
+        auto& tasks = s_Tasks[State::get().ptr()];
+        if (tasks.contains(self))
         {
-            for (auto& task : s_Tasks[self])
+            for (auto& task : tasks[self])
             {
                 task(self);
             }
-            s_Tasks.erase(self);
+            tasks.erase(self);
         }
         s_OriginalDtors[*(void***)self](self, destroy);
     }
 
     inline static std::unordered_map<void**, VFunT*> s_OriginalDtors{};
-    inline static std::unordered_map<void*, std::vector<DtorTaskT>> s_Tasks{};
+    inline static std::unordered_map<StateMemory*, std::unordered_map<void*, std::vector<DtorTaskT>>> s_Tasks{};
 };
 
 template <function_signature VFunT, size_t Index>
@@ -47,28 +58,37 @@ struct VTableDetour<RetT(ClassT*, ArgsT...), Index>
 
     static RetT detour(ClassT* self, ArgsT... args)
     {
+        // std::unordered_map<ClassT*, DetourFunT> functions;
+        // try
+        // {
+        //     functions = s_Functions.at(State::get().ptr());
+        // } catch (std::out_of_range e)
+        // {
+        //     return;
+        // }
+        auto& functions = s_Functions[State::get().ptr()];
         void** vtable = *(void***)self;
         if constexpr (std::is_void_v<RetT>)
         {
-            if (s_Functions.contains(self))
+            if (functions.contains(self))
             {
-                s_Functions[self](self, args..., s_Originals[vtable]);
+                functions[self](self, args..., s_Originals[vtable]);
                 return;
             }
             s_Originals[vtable](self, std::move(args)...);
         }
         else
         {
-            if (s_Functions.contains(self))
+            if (functions.contains(self))
             {
-                return s_Functions[self](self, args..., s_Originals[vtable]);
+                return functions[self](self, args..., s_Originals[vtable]);
             }
             return s_Originals[vtable](self, std::move(args)...);
         }
     }
 
     inline static std::unordered_map<void**, VFunT*> s_Originals{};
-    inline static std::unordered_map<ClassT*, DetourFunT> s_Functions{};
+    inline static std::unordered_map<StateMemory*, std::unordered_map<ClassT*, DetourFunT>> s_Functions{};
 };
 
 template <class HookFunT>
@@ -81,7 +101,7 @@ void hook_dtor(void* obj, HookFunT&& hook_fun, std::size_t dtor_index = 0)
     {
         DestructorDetourT::s_OriginalDtors[*vtable] = (DtorT*)register_hook_function(vtable, dtor_index, (void*)&DestructorDetourT::detour);
     }
-    DestructorDetourT::s_Tasks[obj].push_back(std::forward<HookFunT>(hook_fun));
+    DestructorDetourT::s_Tasks[State::get().ptr()][obj].push_back(std::forward<HookFunT>(hook_fun));
 }
 
 template <class VTableFunT, std::size_t VTableIndex, class T, class HookFunT>
@@ -93,7 +113,7 @@ void hook_vtable_no_dtor(T* obj, HookFunT&& hook_fun)
     {
         DetourT::s_Originals[*vtable] = (VTableFunT*)register_hook_function(vtable, VTableIndex, (void*)&DetourT::detour);
     }
-    DetourT::s_Functions[obj] = std::forward<HookFunT>(hook_fun);
+    DetourT::s_Functions[State::get().ptr()][obj] = std::forward<HookFunT>(hook_fun);
 }
 
 template <class VTableFunT, std::size_t VTableIndex, class T, class HookFunT>
@@ -124,7 +144,8 @@ void hook_vtable(T* obj, HookFunT&& hook_fun, std::size_t dtor_index = 0)
         [](void* self)
         {
             using DetourT = VTableDetour<VTableFunT, VTableIndex>;
-            DetourT::s_Functions.erase((T*)self);
+            auto& functions = DetourT::s_Functions.at(State::get().ptr());
+            functions.erase((T*)self);
         },
         dtor_index);
 }
