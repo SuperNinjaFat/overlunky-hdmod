@@ -12,8 +12,9 @@
 #include "entity_hooks_info.hpp" // for HookWithId
 #include "hook_handler.hpp"      // for HookHandler
 #include "script/safe_cb.hpp"    // for make_safe_clearable_cb
-#include "vtable_hook.hpp"       // for get_hook_function, ...
 #include "state.hpp"             // for State, StateMemory
+#include "thread_utils.hpp"
+#include "vtable_hook.hpp" // for get_hook_function, ...
 
 #include "hookable_vtable.hpp"
 
@@ -113,7 +114,9 @@ struct VTableEntryImpl<VTableEntry<Name, Index, RetT(ArgsT...), BindBack, DoHook
                 if constexpr (CbType == CallbackType::Entity)
                 {
                     backend->local_state_datas[State::get().ptr()].entityHookHandler.add_hook(callback_id, aux_id);
-                } else {
+                }
+                else
+                {
                     backend->MyHookHandler::add_hook(callback_id, aux_id);
                 }
                 return callback_id;
@@ -136,7 +139,9 @@ struct VTableEntryImpl<VTableEntry<Name, Index, RetT(ArgsT...), BindBack, DoHook
                 if constexpr (CbType == CallbackType::Entity)
                 {
                     backend->local_state_datas[State::get().ptr()].entityHookHandler.add_hook(callback_id, aux_id);
-                } else {
+                }
+                else
+                {
                     backend->MyHookHandler::add_hook(callback_id, aux_id);
                 }
                 return callback_id;
@@ -401,7 +406,9 @@ struct HookableVTable
                 if constexpr (CbType == CallbackType::Entity)
                 {
                     backend->local_state_datas[State::get().ptr()].entityHookHandler.clear_hook(callback_id, aux_id);
-                } else {
+                }
+                else
+                {
                     backend->MyHookHandler::clear_hook(callback_id, aux_id);
                 }
             };
@@ -432,32 +439,35 @@ struct HookableVTable
             VTableEntries::MyDoHooks
         >...>;
     // clang-format on
-    std::unordered_map<StateMemory*, std::unordered_map<SelfT*, MyHookInfos>> my_hooks;
+    std::unordered_map<StateMemory*, std::unordered_map<OnHeapPointer<SelfT>, MyHookInfos>> my_hooks;
 
     using MyHookHandler = HookHandler<SelfT, CbType>;
 
     MyHookInfos& get_hooks(SelfT* obj)
     {
         StateMemory* state = State::get().ptr();
-        return my_hooks[state][obj];
+        return my_hooks[state][OnHeapPointer<SelfT>::from_raw_ptr(obj)];
     }
     void remove_hooks(SelfT* obj)
     {
         StateMemory* state = State::get().ptr();
-        my_hooks[state].erase(obj);
+        my_hooks[state].erase(OnHeapPointer<SelfT>::from_raw_ptr(obj));
     }
     void copy_hooks(StateMemory* from, StateMemory* to)
     {
+        std::lock_guard lock_lua{global_lua_lock};
         my_hooks[to] = my_hooks[from];
         ([&]
-        {
+         {
             using ThisVTableEntryImpl = VTableEntryImpl<VTableEntries, SelfT, CbType>;
             using FreeSignature = ThisVTableEntryImpl::FreeSignature;
-            auto& functions = VTableDetour<FreeSignature, VTableEntries::MyIndex>::s_Functions;
+            using ThisVTableDetour = VTableDetour<FreeSignature, VTableEntries::MyIndex>;
+            std::unique_lock lock{ThisVTableDetour::my_mutex};
+            auto& functions = ThisVTableDetour::s_Functions;
             // DEBUG("from {}, to {}, size: to {} from {}", reinterpret_cast<size_t>(from), reinterpret_cast<size_t>(to), functions[to].size(), functions[from].size());
             // DEBUG("ptr to {}, from {}", reinterpret_cast<size_t>(&functions[to]), reinterpret_cast<size_t>(&functions[from]));
-            functions[to] = functions[from];
-        }(), ...);
+            functions[to] = functions[from]; }(),
+         ...);
     }
     void hook_dtor_for_hook_info_cleanup(SelfT* obj, MyHookInfos& hook_info)
     {
@@ -649,15 +659,18 @@ struct HookableVTable<SelfT, CbType, HookableVTable<BaseSelfT, BaseCbType, BaseV
     // Replace the other copy_hooks function to prevent copying the BaseVTableEntries again
     void copy_hooks(StateMemory* from, StateMemory* to)
     {
+        std::lock_guard lock_lua{global_lua_lock};
         MyBase::my_hooks[to] = MyBase::my_hooks[from];
         ([&]
-        {
+         {
             using ThisVTableEntryImpl = VTableEntryImpl<VTableEntries, SelfT, CbType>;
             using FreeSignature = ThisVTableEntryImpl::FreeSignature;
-            auto& functions = VTableDetour<FreeSignature, VTableEntries::MyIndex>::s_Functions;
+            using ThisVTableDetour = VTableDetour<FreeSignature, VTableEntries::MyIndex>;
+            std::unique_lock lock{ThisVTableDetour::my_mutex};
+            auto& functions = ThisVTableDetour::s_Functions;
             // DEBUG("from {}, to {}, size: to {} from {}", reinterpret_cast<size_t>(from), reinterpret_cast<size_t>(to), functions[to].size(), functions[from].size());
             // DEBUG("ptr to {}, from {}", reinterpret_cast<size_t>(&functions[to]), reinterpret_cast<size_t>(&functions[from]));
-            functions[to] = functions[from];
-        }(), ...);
+            functions[to] = functions[from]; }(),
+         ...);
     }
 };

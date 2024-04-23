@@ -13,12 +13,18 @@ template <typename T>
 class OnHeapPointer
 {
     int64_t ptr_;
+    friend struct std::hash<OnHeapPointer<T>>;
 
   public:
     OnHeapPointer() = default;
     explicit OnHeapPointer(size_t ptr)
         : ptr_(ptr)
     {
+    }
+
+    static OnHeapPointer from_raw_ptr(T* raw_ptr)
+    {
+        return OnHeapPointer(reinterpret_cast<size_t>(raw_ptr) - local_heap_base());
     }
 
     T* decode()
@@ -38,6 +44,19 @@ class OnHeapPointer
     T* operator->()
     {
         return decode();
+    }
+    bool operator==(const OnHeapPointer& other) const
+    {
+        return ptr_ == other.ptr_;
+    }
+};
+
+template<typename T>
+struct std::hash<OnHeapPointer<T>>
+{
+    size_t operator()(const OnHeapPointer<T>& k) const
+    {
+        return std::hash<int64_t>()(k.ptr_);
     }
 };
 

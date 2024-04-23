@@ -8,13 +8,13 @@
 
 #include "bucket.hpp"
 #include "constants.hpp"          // for no_return_str
+#include "hook_handler.hpp"       // for HookHandler
 #include "level_api_types.hpp"    // for LevelGenRoomData
 #include "rpc.hpp"                // for game_log, get_adventure_seed
 #include "savestate.hpp"          // for invalidate_save_slots
 #include "script/lua_backend.hpp" // for LuaBackend, ON, LuaBackend::PreHan...
 #include "settings_api.hpp"       // for restore_original_settings
 #include "state.hpp"              // for StateMemory, State
-#include "hook_handler.hpp"       // for HookHandler
 #include "vtable_hook.hpp"
 
 class JournalPage;
@@ -522,6 +522,7 @@ void post_event(ON event)
 
 void pre_copy_state_event(StateMemory* from, StateMemory* to)
 {
+    std::unique_lock lock{VDestructorDetour::my_mutex};
     VDestructorDetour::s_Tasks[to] = VDestructorDetour::s_Tasks[from];
     HookHandler<Entity, CallbackType::Entity>::copy_vtable_hooks(from, to);
     LuaBackend::for_each_backend(
