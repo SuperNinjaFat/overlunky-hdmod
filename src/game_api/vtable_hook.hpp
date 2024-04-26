@@ -83,24 +83,30 @@ struct VTableDetour<RetT(ClassT*, ArgsT...), Index>
         {
             auto self_heap_ptr = OnHeapPointer<ClassT>::from_raw_ptr(self);
             std::lock_guard lock_lua{global_lua_lock};
-            std::shared_lock lock{my_mutex};
+            my_mutex.lock_shared(); // lock, and unlock before calling cb, because the cb may set add a hook, and it would require this lock
+            // std::shared_lock lock{my_mutex};
 
             std::unordered_map<OnHeapPointer<ClassT>, DetourFunT>& functions = s_Functions[State::get().ptr()];
             if constexpr (std::is_void_v<RetT>)
             {
-                if (functions.contains(self_heap_ptr))
+                if (auto search = functions.find(self_heap_ptr); search != functions.end())
                 {
-                    functions[self_heap_ptr](self, args..., s_Originals[vtable]);
+                    DetourFunT fun = search->second;
+                    my_mutex.unlock_shared();
+                    fun(self, args..., s_Originals[vtable]);
                     return;
                 }
             }
             else
             {
-                if (functions.contains(self_heap_ptr))
+                if (auto search = functions.find(self_heap_ptr); search != functions.end())
                 {
-                    return functions[self_heap_ptr](self, args..., s_Originals[vtable]);
+                    DetourFunT fun = search->second;
+                    my_mutex.unlock_shared();
+                    return fun(self, args..., s_Originals[vtable]);
                 }
             }
+            my_mutex.unlock_shared();
         }
         return s_Originals[vtable](self, std::move(args)...);
     }
