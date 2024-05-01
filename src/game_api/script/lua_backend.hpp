@@ -299,6 +299,7 @@ struct LocalStateData
     HookHandler<RenderInfo, CallbackType::Entity> renderInfoHookHandler;
 };
 
+// TODO: probably add ThemeInfo hook handler to LocalStateData
 class LuaBackend
     : public HookHandler<ThemeInfo, CallbackType::Theme>
 {

@@ -35,5 +35,10 @@ void register_usertypes(sol::state& lua)
             ThemeInfo* theme = state->level_gen->themes[theme_id - 1];
             theme_vtable.unhook(theme, callback_id);
         });
+    HookHandler<ThemeInfo, CallbackType::Theme>::set_copy_hooks_impl(
+        [](StateMemory* from, StateMemory* to)
+        {
+            theme_vtable.copy_hooks(from, to);
+        });
 }
 }; // namespace NThemeVTables

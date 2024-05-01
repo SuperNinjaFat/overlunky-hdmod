@@ -18,6 +18,41 @@
 
 #include "hookable_vtable.hpp"
 
+template <typename Derived, typename... BaseClasses>
+constexpr auto is_derived_from_one_of_v =
+    (std::is_base_of_v<BaseClasses, Derived> || ...);
+
+template <class T>
+constexpr bool is_game_heap_allocated = is_derived_from_one_of_v<T, Entity>;
+template <class T>
+concept game_heap_allocated = is_game_heap_allocated<T>;
+
+// Maybe instead of using raw pointers and adjusting them on copy, using the OnHeapPointer could work too, and perhaps better if theres an issue with the order of callbacks and we need to use `map` to make them always ordered
+// Or make stuff to use custom_allocator structs
+template <game_heap_allocated KeyT, class ValueT>
+void copy_heap_allocated_map(
+    StateMemory* from,
+    StateMemory* to,
+    std::unordered_map<StateMemory*, std::unordered_map<KeyT*, ValueT>>& copying_struct)
+{
+    std::unordered_map<KeyT*, ValueT>& struct_from = copying_struct[from];
+    std::unordered_map<KeyT*, ValueT>& struct_to = copying_struct[to];
+    struct_to.clear();
+    struct_to.reserve(struct_from.size());
+    for (auto& kv_pair : struct_from)
+    {
+        size_t from_addr = reinterpret_cast<size_t>(from);
+        size_t copying_addr = reinterpret_cast<size_t>(kv_pair.first);
+        size_t diff = 0;
+        if (copying_addr < from_addr + 0x2000000 && copying_addr > from_addr)
+        {
+            diff = reinterpret_cast<size_t>(to) - from_addr;
+        }
+        KeyT* adjusted_self = reinterpret_cast<KeyT*>(copying_addr + diff);
+        struct_to[adjusted_self] = kv_pair.second;
+    }
+}
+
 template <
     LiteralString Name,
     std::uint32_t Index,
@@ -439,24 +474,31 @@ struct HookableVTable
             VTableEntries::MyDoHooks
         >...>;
     // clang-format on
-    std::unordered_map<StateMemory*, std::unordered_map<OnHeapPointer<SelfT>, MyHookInfos>> my_hooks;
+    std::unordered_map<StateMemory*, std::unordered_map<SelfT*, MyHookInfos>> my_hooks;
 
     using MyHookHandler = HookHandler<SelfT, CbType>;
 
     MyHookInfos& get_hooks(SelfT* obj)
     {
         StateMemory* state = State::get().ptr();
-        return my_hooks[state][OnHeapPointer<SelfT>::from_raw_ptr(obj)];
+        return my_hooks[state][obj];
     }
     void remove_hooks(SelfT* obj)
     {
         StateMemory* state = State::get().ptr();
-        my_hooks[state].erase(OnHeapPointer<SelfT>::from_raw_ptr(obj));
+        my_hooks[state].erase(obj);
     }
     void copy_hooks(StateMemory* from, StateMemory* to)
     {
         std::lock_guard lock_lua{global_lua_lock};
-        my_hooks[to] = my_hooks[from];
+        if constexpr (is_game_heap_allocated<SelfT>)
+        {
+            copy_heap_allocated_map(from, to, my_hooks);
+        }
+        else
+        {
+            my_hooks[to] = my_hooks[from];
+        }
         ([&]
          {
             using ThisVTableEntryImpl = VTableEntryImpl<VTableEntries, SelfT, CbType>;
@@ -466,7 +508,12 @@ struct HookableVTable
             auto& functions = ThisVTableDetour::s_Functions;
             // DEBUG("from {}, to {}, size: to {} from {}", reinterpret_cast<size_t>(from), reinterpret_cast<size_t>(to), functions[to].size(), functions[from].size());
             // DEBUG("ptr to {}, from {}", reinterpret_cast<size_t>(&functions[to]), reinterpret_cast<size_t>(&functions[from]));
-            functions[to] = functions[from]; }(),
+            if constexpr (is_game_heap_allocated<SelfT>)
+            {
+                copy_heap_allocated_map(from, to, functions);
+            } else {
+                functions[to] = functions[from];
+            } }(),
          ...);
     }
     void hook_dtor_for_hook_info_cleanup(SelfT* obj, MyHookInfos& hook_info)
@@ -659,8 +706,15 @@ struct HookableVTable<SelfT, CbType, HookableVTable<BaseSelfT, BaseCbType, BaseV
     // Replace the other copy_hooks function to prevent copying the BaseVTableEntries again
     void copy_hooks(StateMemory* from, StateMemory* to)
     {
-        std::lock_guard lock_lua{global_lua_lock};
-        MyBase::my_hooks[to] = MyBase::my_hooks[from];
+        std::lock_guard lock_lua{global_lua_lock}; // deadlock pt.2 (this or the other copy_hooks)
+        if constexpr (is_game_heap_allocated<SelfT>)
+        {
+            copy_heap_allocated_map(from, to, MyBase::my_hooks);
+        }
+        else
+        {
+            MyBase::my_hooks[to] = MyBase::my_hooks[from];
+        }
         ([&]
          {
             using ThisVTableEntryImpl = VTableEntryImpl<VTableEntries, SelfT, CbType>;
@@ -670,7 +724,12 @@ struct HookableVTable<SelfT, CbType, HookableVTable<BaseSelfT, BaseCbType, BaseV
             auto& functions = ThisVTableDetour::s_Functions;
             // DEBUG("from {}, to {}, size: to {} from {}", reinterpret_cast<size_t>(from), reinterpret_cast<size_t>(to), functions[to].size(), functions[from].size());
             // DEBUG("ptr to {}, from {}", reinterpret_cast<size_t>(&functions[to]), reinterpret_cast<size_t>(&functions[from]));
-            functions[to] = functions[from]; }(),
+            if constexpr (is_game_heap_allocated<SelfT>)
+            {
+                copy_heap_allocated_map(from, to, functions);
+            } else {
+                functions[to] = functions[from];
+            } }(),
          ...);
     }
 };

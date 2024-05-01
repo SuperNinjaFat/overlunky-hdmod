@@ -522,9 +522,12 @@ void post_event(ON event)
 
 void pre_copy_state_event(StateMemory* from, StateMemory* to)
 {
-    std::unique_lock lock{VDestructorDetour::my_mutex};
-    VDestructorDetour::s_Tasks[to] = VDestructorDetour::s_Tasks[from];
+    {
+        std::unique_lock lock{VDestructorDetour::my_mutex};
+        VDestructorDetour::s_Tasks[to] = VDestructorDetour::s_Tasks[from];
+    }
     HookHandler<Entity, CallbackType::Entity>::copy_vtable_hooks(from, to);
+    HookHandler<ThemeInfo, CallbackType::Theme>::copy_vtable_hooks(from, to);
     LuaBackend::for_each_backend(
         [&](LuaBackend::LockedBackend backend)
         {

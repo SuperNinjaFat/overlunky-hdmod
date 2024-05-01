@@ -3,6 +3,7 @@
 #include <d3d11.h>
 #include <dxgi.h>
 
+#include <imgui.h>
 #include <type_traits> // for true_type, is_invocable_r_v
 #include <vector>
 
@@ -52,5 +53,5 @@ const int OL_WHEEL_UP = 0x12;
 struct EntityItem;
 
 void create_box(std::vector<EntityItem> items);
-void init_ui();
+void init_ui(ImGuiContext* ctx);
 void reload_enabled_scripts();

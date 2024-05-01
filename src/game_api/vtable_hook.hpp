@@ -19,7 +19,8 @@ void* register_hook_function(void*** vtable, size_t index, void* hook_function);
 void unregister_hook_function(void*** vtable, size_t index);
 void* get_hook_function(void*** vtable, size_t index);
 
-// TODO: See if can optimize the locks to prevent having to log the global lua lock sometimes, test if everything works
+// TODO: See if can optimize the locks to prevent having to lock the global lua lock sometimes, test if everything works
+// TODO: Try using the UMapEditTracked and VectorEditTracked
 
 struct VDestructorDetour
 {
@@ -42,27 +43,33 @@ struct VDestructorDetour
             std::unique_lock lock{my_mutex};
 
             auto& tasks = s_Tasks[State::get().ptr()];
-            auto self_heap_ptr = OnHeapPointer<void>::from_raw_ptr(self);
-            if (tasks.contains(self_heap_ptr))
+            if (tasks.contains(self))
             {
-                for (auto& task : tasks[self_heap_ptr])
+                for (auto& task : tasks[self])
                 {
                     task(self);
                 }
-                tasks.erase(self_heap_ptr);
+                tasks.erase(self);
             }
         }
         s_OriginalDtors[*(void***)self](self, destroy);
     }
 
     inline static std::unordered_map<void**, VFunT*> s_OriginalDtors{};
-    inline static std::unordered_map<StateMemory*, std::unordered_map<OnHeapPointer<void>, std::vector<DtorTaskT>>> s_Tasks{};
+    inline static std::unordered_map<StateMemory*, std::unordered_map<void*, std::vector<DtorTaskT>>> s_Tasks{};
     inline static std::shared_mutex my_mutex{};
 };
 
 template <function_signature VFunT, size_t Index>
 struct VTableDetour;
 
+template <typename T, typename... U>
+size_t getAddress(std::function<T(U...)> f)
+{
+    typedef T(fnType)(U...);
+    fnType** fnPointer = f.template target<fnType*>();
+    return (size_t)*fnPointer;
+}
 template <class RetT, class ClassT, class... ArgsT, std::size_t Index>
 struct VTableDetour<RetT(ClassT*, ArgsT...), Index>
 {
@@ -81,15 +88,14 @@ struct VTableDetour<RetT(ClassT*, ArgsT...), Index>
         // }
         void** vtable = *(void***)self;
         {
-            auto self_heap_ptr = OnHeapPointer<ClassT>::from_raw_ptr(self);
             std::lock_guard lock_lua{global_lua_lock};
             my_mutex.lock_shared(); // lock, and unlock before calling cb, because the cb may set add a hook, and it would require this lock
             // std::shared_lock lock{my_mutex};
 
-            std::unordered_map<OnHeapPointer<ClassT>, DetourFunT>& functions = s_Functions[State::get().ptr()];
+            std::unordered_map<ClassT*, DetourFunT>& functions = s_Functions[State::get().ptr()];
             if constexpr (std::is_void_v<RetT>)
             {
-                if (auto search = functions.find(self_heap_ptr); search != functions.end())
+                if (auto search = functions.find(self); search != functions.end())
                 {
                     DetourFunT fun = search->second;
                     my_mutex.unlock_shared();
@@ -99,7 +105,7 @@ struct VTableDetour<RetT(ClassT*, ArgsT...), Index>
             }
             else
             {
-                if (auto search = functions.find(self_heap_ptr); search != functions.end())
+                if (auto search = functions.find(self); search != functions.end())
                 {
                     DetourFunT fun = search->second;
                     my_mutex.unlock_shared();
@@ -112,7 +118,7 @@ struct VTableDetour<RetT(ClassT*, ArgsT...), Index>
     }
 
     inline static std::unordered_map<void**, VFunT*> s_Originals{};
-    inline static std::unordered_map<StateMemory*, std::unordered_map<OnHeapPointer<ClassT>, DetourFunT>> s_Functions{};
+    inline static std::unordered_map<StateMemory*, std::unordered_map<ClassT*, DetourFunT>> s_Functions{};
     inline static std::shared_mutex my_mutex{};
 };
 
@@ -127,7 +133,7 @@ void hook_dtor(void* obj, HookFunT&& hook_fun, std::size_t dtor_index = 0)
     {
         DestructorDetourT::s_OriginalDtors[*vtable] = (DtorT*)register_hook_function(vtable, dtor_index, (void*)&DestructorDetourT::detour);
     }
-    DestructorDetourT::s_Tasks[State::get().ptr()][OnHeapPointer<void>::from_raw_ptr(obj)].push_back(std::forward<HookFunT>(hook_fun));
+    DestructorDetourT::s_Tasks[State::get().ptr()][obj].push_back(std::forward<HookFunT>(hook_fun));
 }
 
 template <class VTableFunT, std::size_t VTableIndex, class T, class HookFunT>
@@ -140,11 +146,11 @@ void hook_vtable_no_dtor(T* obj, HookFunT&& hook_fun)
     {
         DetourT::s_Originals[*vtable] = (VTableFunT*)register_hook_function(vtable, VTableIndex, (void*)&DetourT::detour);
     }
-    DetourT::s_Functions[State::get().ptr()][OnHeapPointer<T>::from_raw_ptr(obj)] = std::forward<HookFunT>(hook_fun);
+    DetourT::s_Functions[State::get().ptr()][obj] = std::forward<HookFunT>(hook_fun);
 }
 
 template <class VTableFunT, std::size_t VTableIndex, class T, class HookFunT>
-void hook_vtable(T* obj, HookFunT&& hook_fun, std::size_t dtor_index = 0)
+void hook_vtable(T* obj, HookFunT&& hook_fun, std::size_t dtor_index = 0) // May have to set lua lock since may not always have it in specific cases
 {
     if constexpr (std::is_same_v<VTableFunT, void(T*)>)
     {
@@ -173,7 +179,7 @@ void hook_vtable(T* obj, HookFunT&& hook_fun, std::size_t dtor_index = 0)
             using DetourT = VTableDetour<VTableFunT, VTableIndex>;
             std::unique_lock lock{DetourT::my_mutex};
             auto& functions = DetourT::s_Functions.at(State::get().ptr());
-            functions.erase(OnHeapPointer<T>::from_raw_ptr((T*)self));
+            functions.erase((T*)self);
         },
         dtor_index);
 }
