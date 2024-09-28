@@ -16,7 +16,6 @@ class OnHeapPointer
     friend struct std::hash<OnHeapPointer<T>>;
 
   public:
-    OnHeapPointer() = default;
     explicit OnHeapPointer(size_t ptr)
         : ptr_(ptr)
     {
